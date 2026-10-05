@@ -1077,3 +1077,11 @@ luigi: "los productos en 0 no deben aparecer en la despensa/alacena, deben apare
 - **Migración 0046** (aplicada en remoto): columna `es_nuevo` en `fin_estados_cuenta_items`; corrección de clasificación del ítem 11; flag en las 3; `rpc_ec_item_upsert` acepta `p_es_nuevo` (null = no cambiar). `rpc_ec_ver` lo trae solo vía `row_to_json`.
 - **PDF**: badge naranja "NUEVO" junto al título de los ítems marcados (con reserva de ancho para títulos largos y desplazamiento de la descripción si el título ocupa 2 líneas); la nota de filas resaltadas ahora dice "NUEVO = adiciones recientes" y el subtotal de nuevas pasó a $150.
 - **UI**: checkbox "Nuevo (se destaca en el PDF)" en el editor de ítems + badge NUEVO en la lista. Verificado visualmente con datos reales del 2026-095: 2 páginas, sin solapamientos.
+
+## 2026-10-05 — Fixes visuales PDF estado de cuenta (reporte de luigi)
+
+- Precios "arriba" del texto: el monto iba en 8.5pt y el título en 8pt (misma línea base, pero se veía más alto). Ambos a 8pt en las dos tablas.
+- Nota "Filas resaltadas…": el segmento en negrita se medía con fuente normal y "NUEVO = adiciones recientes." se montaba encima. Reescrita midiendo cada segmento con su fuente real.
+- Tarjeta CLIENTE/PROYECTO: el valor en 2 líneas se salía de la tarjeta fija de 13mm. Alto dinámico según líneas del valor.
+- Badge NUEVO muy pegado al título: separación 2.5 → 4.5mm.
+- PDF regenerado y verificado visualmente página por página (2 páginas, sin solapamientos).

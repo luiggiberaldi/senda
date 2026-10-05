@@ -315,7 +315,7 @@ function cellText(
         // Badge "NUEVO" naranja junto al título (su ancho se reserva arriba).
         doc.setFont("helvetica", "bold"); doc.setFontSize(size);
         const primera = doc.splitTextToSize(txt, tW)[0] ?? "";
-        const bx = ax + doc.getTextWidth(primera) + 2.5;
+        const bx = ax + doc.getTextWidth(primera) + 4.5;
         doc.setFontSize(5.5);
         const bw = doc.getTextWidth("NUEVO") + 5;
         const bh = 4.2;
@@ -347,13 +347,17 @@ export function buildEstadoCuentaPdf(
 
   // ── Tarjetas de info ──
   {
-    const y = cursor.y; const h = 13; const cw = CW / 3;
-    setFill(doc, CARD); roundRect(doc, ML, y, CW, h, 2.5, "F");
+    const y = cursor.y; const cw = CW / 3;
     const cols: Array<[string, string]> = [
       ["FECHA DE EMISIÓN", formatoFechaLarga(ec.fecha_emision)],
       ["CLIENTE / PROYECTO", ec.proyecto ? `${ec.cliente} (${ec.proyecto})` : ec.cliente],
       ["CONDICIÓN PACTADA", ec.condicion],
     ];
+    // alto dinámico: si un valor ocupa 2 líneas, la tarjeta crece
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    const maxLines = Math.max(...cols.map(([, val]) => doc.splitTextToSize(val, cw - 8).length));
+    const h = Math.max(13, 9.6 + (maxLines - 1) * 3.8 + 3.5);
+    setFill(doc, CARD); roundRect(doc, ML, y, CW, h, 2.5, "F");
     cols.forEach(([lab, val], i) => {
       const x = ML + i * cw + 4;
       texto(doc, lab, x, y + 4.4, { size: 6.5, bold: true, color: MUTED });
@@ -377,7 +381,7 @@ export function buildEstadoCuentaPdf(
       cells: [
         withW(cellText(m.titulo, { bold: true, sub: m.descripcion ?? undefined }), c0),
         withW({ w: 0, minH: 7, draw(d, x, y, w, h) { pill(d, "ENTREGADO", x + w / 2, y + h / 2 - 2.6, TEAL); } }, c1),
-        withW(cellText(formatoUSD(m.monto), { bold: true, align: "right" }), c2),
+        withW(cellText(formatoUSD(m.monto), { bold: true, align: "right", size: 8 }), c2),
       ],
     }));
     rows.push({
@@ -418,7 +422,7 @@ export function buildEstadoCuentaPdf(
               if (m.listo) pill(d, "Listo", x + w * 0.78, cy, GREEN, { size: 5.5, check: true });
             },
           }, c2),
-          withW(cellText(formatoUSD(m.monto), { align: "right" }), c3),
+          withW(cellText(formatoUSD(m.monto), { align: "right", size: 8 }), c3),
         ],
       };
     });
@@ -433,20 +437,24 @@ export function buildEstadoCuentaPdf(
     });
     drawTable(doc, cursor, header, rows);
     cursor.y += 3;
-    // nota de filas resaltadas
+    // nota de filas resaltadas (cada segmento se mide con la fuente con la que se dibuja)
     need(doc, cursor, 8);
     setFill(doc, LAVENDER);
     roundRect(doc, ML, cursor.y, CW, 8, 2, "F");
-    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); setTextColor(doc, LAV_TXT);
-    doc.text("Filas resaltadas: nuevas implementaciones", ML + 4, cursor.y + 5);
-    const p1 = `pendientes de pago (${formatoUSD(t.nuevasPendientes)} USD del subtotal).`;
-    doc.setFont("helvetica", "bold");
-    doc.text(p1, ML + 4 + doc.getTextWidth("Filas resaltadas: nuevas implementaciones "), cursor.y + 5);
-    const p2 = "NUEVO = adiciones recientes.";
-    doc.setFont("helvetica", "normal"); setTextColor(doc, LAV_TXT);
-    const p2x = ML + 4 + doc.getTextWidth("Filas resaltadas: nuevas implementaciones " + p1 + "  ");
-    if (p2x + doc.getTextWidth(p2) < ML + CW - 4) {
-      doc.text(p2, p2x, cursor.y + 5);
+    setTextColor(doc, LAV_TXT);
+    doc.setFontSize(7.5);
+    let nx = ML + 4;
+    const segNota = (txt: string, bold: boolean) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.text(txt, nx, cursor.y + 5);
+      nx += doc.getTextWidth(txt);
+    };
+    segNota("Filas resaltadas: nuevas implementaciones ", false);
+    segNota(`pendientes de pago (${formatoUSD(t.nuevasPendientes)} USD del subtotal).`, true);
+    const p2n = "  NUEVO = adiciones recientes.";
+    doc.setFont("helvetica", "normal");
+    if (nx + doc.getTextWidth(p2n) < ML + CW - 4) {
+      doc.text(p2n, nx, cursor.y + 5);
     }
     cursor.y += 8 + 5;
   }
