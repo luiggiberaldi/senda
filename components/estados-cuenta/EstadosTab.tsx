@@ -25,7 +25,7 @@ import {
   registrarPago,
   borrarPago,
   borrarEstadoCuenta,
-  marcarPagoEnFinanzas,
+  llevarPagoAFinanzas,
   descargarPdfEC,
 } from "../../lib/estados-cuenta/cliente";
 import {
@@ -45,7 +45,6 @@ import {
 } from "../../lib/estados-cuenta/tipos";
 import {
   listarCuentasConSaldos,
-  registrarMovimiento,
   hoyCaracas,
 } from "../../lib/finanzas/finanzas";
 import type { FinCuentaConSaldo } from "../../lib/finanzas/types";
@@ -452,8 +451,6 @@ function DetalleEstado({
       <SeccionPagos
         pagos={full.pagos}
         estadoId={id}
-        numero={ec.numero}
-        cliente={ec.cliente}
         onCambio={cargar}
         onError={onError}
       />
@@ -812,15 +809,11 @@ function FormItem({
 function SeccionPagos({
   pagos,
   estadoId,
-  numero,
-  cliente,
   onCambio,
   onError,
 }: {
   pagos: EstadoCuentaCompleto["pagos"];
   estadoId: string;
-  numero: string;
-  cliente: string;
   onCambio: () => void;
   onError: (msg: string | null) => void;
 }) {
@@ -897,15 +890,9 @@ function SeccionPagos({
     setGuardando(true);
     onError(null);
     try {
-      const movId = await registrarMovimiento({
-        tipo: "ingreso",
-        cuentaId,
-        monto: pago.monto,
-        categoria: "deuda",
-        fecha: pago.fecha,
-        nota: `Abono estado de cuenta ${numero} · ${cliente}`,
-      });
-      await marcarPagoEnFinanzas(pago.id, movId);
+      // Una sola llamada atómica e idempotente: registra el ingreso (convertido
+      // a la moneda de la cuenta) y marca el pago. Reintentar no duplica.
+      await llevarPagoAFinanzas(pago.id, cuentaId);
       setLlevando(null);
       onCambio();
     } catch (e) {

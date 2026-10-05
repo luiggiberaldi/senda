@@ -216,17 +216,27 @@ export async function borrarEstadoCuenta(id: string): Promise<void> {
   lanzarSiHayError(error, "No se pudo borrar el estado de cuenta");
 }
 
-/** Marca un pago como llevado a Finanzas (guarda el id del movimiento). */
-export async function marcarPagoEnFinanzas(pagoId: string, movimientoId: string): Promise<void> {
+/**
+ * Lleva un pago a Finanzas en una sola operación atómica e idempotente
+ * (RPC rpc_ec_pago_a_finanzas): registra el ingreso convertido a la moneda
+ * de la cuenta y marca el pago. Reintentarlo no duplica el movimiento.
+ */
+export async function llevarPagoAFinanzas(
+  pagoId: string,
+  cuentaId: string
+): Promise<{ finMovimientoId: string; duplicado: boolean }> {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Sin conexión con la nube");
   const userId = await usuario();
-  const { error } = await supabase.rpc("rpc_ec_pago_marcar_finanzas", {
+  const { data, error } = await supabase.rpc("rpc_ec_pago_a_finanzas", {
     p_user_id: userId,
     p_pago_id: pagoId,
-    p_movimiento_id: movimientoId,
+    p_cuenta_id: cuentaId,
   });
-  lanzarSiHayError(error, "No se pudo marcar el pago");
+  lanzarSiHayError(error, "No se pudo llevar a Finanzas");
+  const r = (data ?? {}) as { fin_movimiento_id?: string; duplicado?: boolean };
+  if (!r.fin_movimiento_id) throw new Error("Respuesta inesperada del servidor");
+  return { finMovimientoId: r.fin_movimiento_id, duplicado: !!r.duplicado };
 }
 
 /* ── Marca Synaptica: logo S recortado + firma, en caché ── */
