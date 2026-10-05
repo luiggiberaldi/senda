@@ -86,6 +86,7 @@ export async function verEstadoCuenta(id: string): Promise<EstadoCuentaCompleto>
       clasificacion: (i.clasificacion as ECItem["clasificacion"]) ?? null,
       monto: Number(i.monto ?? 0),
       listo: Boolean(i.listo),
+      es_nuevo: Boolean(i.es_nuevo),
       creado_en: String(i.creado_en ?? ""),
     })),
     pagos: (d.pagos ?? []).map((p) => ({
@@ -168,6 +169,7 @@ export async function guardarItem(
     p_listo: item.listo,
     p_orden: null,
     p_id: id ?? null,
+    p_es_nuevo: item.esNuevo,
   });
   lanzarSiHayError(error, "No se pudo guardar el ítem");
   const r = data as { ok: boolean; id: string } | null;

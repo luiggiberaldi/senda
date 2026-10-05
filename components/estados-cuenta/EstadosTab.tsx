@@ -615,7 +615,14 @@ function SeccionItems({
             <div className="flex items-start gap-2">
               <span className="mt-0.5 shrink-0 text-xs font-bold text-muted">{idx + 1}</span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-foreground">{it.titulo}</p>
+                <p className="text-sm font-bold text-foreground">
+                  {it.titulo}
+                  {it.es_nuevo && (
+                    <span className="ml-1.5 rounded-full bg-orange-500 px-2 py-0.5 align-middle text-[10px] font-bold text-white">
+                      NUEVO
+                    </span>
+                  )}
+                </p>
                 {it.descripcion && <p className="text-xs text-muted">{it.descripcion}</p>}
                 <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px]">
                   {it.clasificacion && (
@@ -716,6 +723,7 @@ function FormItem({
     inicial ? String(inicial.monto).replace(".", ",") : ""
   );
   const [listo, setListo] = useState(inicial?.listo ?? true);
+  const [esNuevo, setEsNuevo] = useState(inicial?.es_nuevo ?? false);
   const [guardando, setGuardando] = useState(false);
 
   const guardar = async () => {
@@ -738,6 +746,7 @@ function FormItem({
         clasificacion: tipo === "item" ? (clasificacion as ECClasificacion) : null,
         monto,
         listo,
+        esNuevo: tipo === "item" ? esNuevo : false,
       };
       await guardarItem(estadoId, item, inicial?.id);
       onListo();
@@ -788,6 +797,12 @@ function FormItem({
         <input type="checkbox" checked={listo} onChange={(e) => setListo(e.target.checked)} className="h-4 w-4 rounded" />
         Listo / entregado
       </label>
+      {tipo === "item" && (
+        <label className="inline-flex items-center gap-2 text-xs font-bold text-muted">
+          <input type="checkbox" checked={esNuevo} onChange={(e) => setEsNuevo(e.target.checked)} className="h-4 w-4 rounded" />
+          Nuevo <span className="font-normal">(se destaca en el PDF)</span>
+        </label>
+      )}
       <div className="flex gap-2">
         <button type="button" onClick={onCancelar} className="rounded-xl bg-surface px-3 py-2 text-xs font-bold text-muted">
           Cancelar

@@ -18,6 +18,8 @@ export interface ECItem {
   clasificacion: ECClasificacion | null;
   monto: number;
   listo: boolean;
+  /** Adición reciente: se destaca con "NUEVO" en el PDF. */
+  es_nuevo: boolean;
   creado_en: string;
 }
 
@@ -70,6 +72,7 @@ export interface ItemNuevo {
   clasificacion: ECClasificacion | null;
   monto: number;
   listo: boolean;
+  esNuevo: boolean;
 }
 
 export interface PagoNuevo {

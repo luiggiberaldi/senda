@@ -276,7 +276,7 @@ function drawTable(
 }
 
 function cellText(
-  txt: string, o: { size?: number; bold?: boolean; color?: RGB; align?: "left" | "center" | "right"; sub?: string } = {}
+  txt: string, o: { size?: number; bold?: boolean; color?: RGB; align?: "left" | "center" | "right"; sub?: string; nuevo?: boolean } = {}
 ): TableCell {
   const size = o.size ?? 8.5;
   const subSize = 6.8;
@@ -287,7 +287,8 @@ function cellText(
   const measure = (doc: jsPDF, w: number): number => {
     doc.setFont("helvetica", o.bold ? "bold" : "normal");
     doc.setFontSize(size);
-    const tl = doc.splitTextToSize(txt, w - 5).length;
+    const tW = w - 5 - (o.nuevo ? 16 : 0);
+    const tl = doc.splitTextToSize(txt, tW).length;
     let sl = 0;
     if (o.sub) { doc.setFontSize(subSize); sl = doc.splitTextToSize(o.sub, w - 5).length; }
     // Solo crece la fila si el contenido excede lo que la geometría compacta absorbe.
@@ -300,9 +301,27 @@ function cellText(
     measure,
     draw(doc, x, y, w) {
       const ax = o.align === "center" ? x + w / 2 : o.align === "right" ? x + w - 2.5 : x + 2.5;
-      texto(doc, txt, ax, y + 3.8, { size, bold: o.bold, color: o.color ?? INK, align: o.align ?? "left", maxWidth: w - 5, lineHeight: size * 0.42 });
+      const tW = (o.align ?? "left") === "left" && o.nuevo ? w - 5 - 16 : w - 5;
+      const tLh = size * 0.42;
+      doc.setFont("helvetica", o.bold ? "bold" : "normal"); doc.setFontSize(size);
+      const tLines = doc.splitTextToSize(txt, tW);
+      texto(doc, txt, ax, y + 3.8, { size, bold: o.bold, color: o.color ?? INK, align: o.align ?? "left", maxWidth: tW, lineHeight: tLh });
+      // Si el título ocupa varias líneas, la descripción baja lo necesario.
+      const subY = y + 7.2 + (tLines.length - 1) * tLh;
       if (o.sub) {
-        texto(doc, o.sub, ax, y + 7.2, { size: subSize, color: MUTED, align: o.align ?? "left", maxWidth: w - 5, lineHeight: subLh });
+        texto(doc, o.sub, ax, subY, { size: subSize, color: MUTED, align: o.align ?? "left", maxWidth: w - 5, lineHeight: subLh });
+      }
+      if (o.nuevo && (o.align ?? "left") === "left") {
+        // Badge "NUEVO" naranja junto al título (su ancho se reserva arriba).
+        doc.setFont("helvetica", "bold"); doc.setFontSize(size);
+        const primera = doc.splitTextToSize(txt, tW)[0] ?? "";
+        const bx = ax + doc.getTextWidth(primera) + 2.5;
+        doc.setFontSize(5.5);
+        const bw = doc.getTextWidth("NUEVO") + 5;
+        const bh = 4.2;
+        setFill(doc, ORANGE); roundRect(doc, bx, y + 1.4, bw, bh, bh / 2, "F");
+        setTextColor(doc, WHITE);
+        doc.text("NUEVO", bx + bw / 2, y + 1.4 + 3, { align: "center" });
       }
     },
   };
@@ -390,7 +409,7 @@ export function buildEstadoCuentaPdf(
         bg: esNueva ? LAVENDER : undefined,
         cells: [
           withW(cellText(String(idx + 1), { color: MUTED, align: "center" }), c0),
-          withW(cellText(m.titulo, { bold: true, sub: m.descripcion ?? undefined, size: 8 }), c1),
+          withW(cellText(m.titulo, { bold: true, sub: m.descripcion ?? undefined, size: 8, nuevo: m.es_nuevo }), c1),
           withW({
             w: 0, minH: 7,
             draw(d, x, y, w, h) {
@@ -423,6 +442,12 @@ export function buildEstadoCuentaPdf(
     const p1 = `pendientes de pago (${formatoUSD(t.nuevasPendientes)} USD del subtotal).`;
     doc.setFont("helvetica", "bold");
     doc.text(p1, ML + 4 + doc.getTextWidth("Filas resaltadas: nuevas implementaciones "), cursor.y + 5);
+    const p2 = "NUEVO = adiciones recientes.";
+    doc.setFont("helvetica", "normal"); setTextColor(doc, LAV_TXT);
+    const p2x = ML + 4 + doc.getTextWidth("Filas resaltadas: nuevas implementaciones " + p1 + "  ");
+    if (p2x + doc.getTextWidth(p2) < ML + CW - 4) {
+      doc.text(p2, p2x, cursor.y + 5);
+    }
     cursor.y += 8 + 5;
   }
 
