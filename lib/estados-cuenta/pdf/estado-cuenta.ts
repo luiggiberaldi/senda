@@ -485,7 +485,8 @@ export function buildEstadoCuentaPdf(
         // Sub en la misma línea, como la plantilla original.
         doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
         const labW = doc.getTextWidth(lab);
-        texto(doc, " (Módulos 100% Pagados + abono a mejoras)", ML + 4 + labW, y + i * rh + 4.2, { size: 7, color: TEAL });
+        // gap explícito: getTextWidth puede medir apenas corto y comerse el espacio
+        texto(doc, "(Módulos 100% Pagados + abono a mejoras)", ML + 4 + labW + 1.2, y + i * rh + 4.2, { size: 7, color: TEAL });
       }
       texto(doc, val, ML + CW - 4, y + i * rh + 4.2, { size: 8.5, bold: !!bold, align: "right" });
     });

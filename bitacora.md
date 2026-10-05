@@ -1085,3 +1085,8 @@ luigi: "los productos en 0 no deben aparecer en la despensa/alacena, deben apare
 - Tarjeta CLIENTE/PROYECTO: el valor en 2 líneas se salía de la tarjeta fija de 13mm. Alto dinámico según líneas del valor.
 - Badge NUEVO muy pegado al título: separación 2.5 → 4.5mm.
 - PDF regenerado y verificado visualmente página por página (2 páginas, sin solapamientos).
+
+## 2026-10-05 — Auditoría visual completa del PDF (pedido de luigi)
+
+- Revisión región por región en alta resolución (cabecera, tarjetas, tablas, balance, firma): todo limpio.
+- Único hallazgo: en "Total cancelado a la fecha" el sub teal "(Módulos 100% Pagados…)" se pegaba al texto porque getTextWidth medía apenas corto. Gap explícito de 1.2mm.
