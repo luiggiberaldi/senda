@@ -1041,3 +1041,25 @@ luigi: "los productos en 0 no deben aparecer en la despensa/alacena, deben apare
 - **Hallazgo del E2E**: `rpc_mer_producto_upsert` (crear) NO evaluaba el punto de reorden — un producto creado en 0 nacía invisible (fuera de la alacena por la regla nueva y fuera de la lista). Se agregó la evaluación al upsert (0040b, copia de 0023 + `mer_pasar_a_lista_si_reorden`).
 - **Higiene**: al desactivar un producto sale de `mer_lista` (0040c); `rpc_mer_lista` ignora productos inactivos; limpieza de pendientes huérfanos incluida. (El test viejo había dejado "Prueba Umbral" como pendiente huérfano.)
 - Verificación: `test-cero-a-lista.mjs` 8/8 PASS (crear en 0 → lista; compra directa → sale de lista; consumo a 0 → vuelve); `test-punto-reorden.mjs` actualizado (el alta en 0 ya mete a la lista, y el test es idempotente normalizando stock) y pasando. WhatsApp real: `mercado inventario` muestra 15 con stock + "En cero (están en la lista)".
+
+## 2026-10-04 — Conciliación BDV: diferencia de Bs 214 explicada
+
+- Banco Bs 56.880,29 vs libros Bs 56.666,29 → dif 214.
+- Bs 200: resto por pagar de la compra toddy/mayonesa/leche (egreso registrado por 8.700, del banco salieron 8.500). Quedó como por_pagar a "bodega".
+- Bs 14: comisión duplicada (eb44341e) del pago móvil de 8.500 — se registró siguiendo la regla de "Bs 14 fijos", pero el banco cobró 25,50 por ese pago. Anulada.
+- OJO: la regla "BDV cobra Bs 14 fijos por pago móvil" quedó en duda: el 04/10 cobró 25,50 por un pago de 8.500. Vigilar próximos cobros antes de reescribir la regla.
+- Movimientos 04/10 registrados: venta P2P 10,36 USDT → Bs 10.000; recarga mamá 1.000 (egreso) + devolución 1.000 (ingreso); comisión 25,50.
+
+## 2026-10-04 — Corrección: la comisión 14 sí va
+
+- luigi confirmó que la comisión de Bs 14 (eb44341e, anulada por no calzar con el banco visible) SÍ fue un cobro real, aunque no sabemos de qué movimiento es. Se restauró como "comisión banco por identificar" (64a363fb).
+- Conciliación final: libros Bs 56.666,29 vs banco Bs 56.880,29 → dif 214 = 200 (por pagar, correcto) + 14 (comisión real sin origen identificado).
+
+## 2026-10-05 — Creador de estados de cuenta Synaptica (pestaña Estados en Finanzas)
+
+- luigi pidió un creador de estados de cuenta con la plantilla del PDF de Construacero 2026-095. Reglas: (1) los estados se guardan con historial; (2) los pagos/abonos SOLO van a Finanzas si él lo pide explícito — guardar un pago en el estado jamás crea un movimiento financiero solo.
+- **DB** (migración `0044_estados_cuenta.sql`, aplicada en remoto): `fin_estados_cuenta`, `fin_estados_cuenta_items` (módulo/item con clasificación modificación|nueva), `fin_estados_cuenta_pagos` (con `fin_movimiento_id` para marcar abonos ya llevados a Finanzas), `fin_ec_secuencias` (folios `2026-NNN`). RPCs: crear/listar/ver/actualizar/borrar estado, upsert/borrar ítem, registrar/borrar pago, marcar pago en finanzas, borrar estado. Totales recalculados en DB (`fin_ec_recalcular()`), RLS por dueño/hogar.
+- **Semilla**: estado 2026-095 de Construacero con los datos reales (3 módulos $275 + 11 mejoras $210 = $485; pagos $75+$200+$100 = $375; saldo $110; el pago de $100 enlazado al movimiento df6c4a25 — no duplicar). Secuencia en 95. Verificado por query: total 485, pagado 375, saldo 110, 14 ítems, 3 pagos.
+- **Código**: `lib/estados-cuenta/` (tipos, calculos, cliente RPC, `pdf/estado-cuenta.ts` con jsPDF replicando la plantilla exacta: header navy + constelación, tarjetas de info, tablas con pills, balance, tarjetas Pago Móvil/Binance, términos, bloque de firma, footer "Página X de Y"). `components/estados-cuenta/EstadosTab.tsx`: lista, editor (cliente/proyecto/condición/fecha), CRUD de módulos e ítems, registro/borrado de pagos, descarga del PDF, acción explícita "Llevar a Finanzas" (crea el ingreso USDT→Binance y marca el pago, idempotente por `fin_movimiento_id`).
+- **Verificación**: `tsc --noEmit` limpio; harness determinista de `calculos.ts` 15/15 PASS (totales Construacero, sin pagos, pagado completo, sobrepago, clasificación, redondeo, formatos); PDF generado con el builder real y revisado visualmente página por página contra el original — 2 páginas, sin texto cortado ni solapamientos (fixes: header repetido al partir tabla, sub teal inline, espaciado del tarifario, alturas de fila como el original).
+- **Pendiente honesto**: la UI no se probó en navegador/teléfono real (el sandbox no renderiza web apps; requiere deploy con autorización de luigi o revisión en su teléfono).
