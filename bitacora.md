@@ -1090,3 +1090,39 @@ luigi: "los productos en 0 no deben aparecer en la despensa/alacena, deben apare
 
 - Revisión región por región en alta resolución (cabecera, tarjetas, tablas, balance, firma): todo limpio.
 - Único hallazgo: en "Total cancelado a la fecha" el sub teal "(Módulos 100% Pagados…)" se pegaba al texto porque getTextWidth medía apenas corto. Gap explícito de 1.2mm.
+
+## 2026-10-07 — Tasas oficiales BCV directo (criterio listo-pos-cotizaciones)
+
+- luigi pidió que el euro BCV en Senda se obtenga como en listo-pos-cotizaciones: directo del BCV, no de DolarAPI (su publicación puede quedar un día atrás).
+- **Edge Function `actualizar-tasas` v4** (desplegada): las tasas oficiales ($ BCV y € BCV) ahora se traen con prioridad **BCV directo** (scrape `bcv.org.ve`, ids `dolar`/`euro`) → **CDN DolarVZLA** → **DolarAPI** (último recurso). El paralelo sigue de DolarAPI (el BCV no lo publica). USDT sin cambios (CriptoYa → Binance P2P).
+- Parseo `parseLocalizedNumber`/`extractBcvRate` verificado con harness determinista: 10/10 PASS (formatos `873,86`, `1.234,56`, HTML con/sin clase `strong-tb`).
+- La fuente queda registrada en `fin_tasas.fuente` (ej. "BCV Directo", "BCV CDN (DolarVZLA)", "DolarAPI Oficial (último recurso)").
+
+## 2026-10-08 — Recibos: `amountBs` en PDF de Synaptica + `filaARecibo`
+- luigi pidió que el recibo SEN-202610-001 (Bily Medina) mostrara el pago real: Bs 245.000 vía pago móvil (tasa 875) en vez del contravalor a tasa en vivo, y cambiar el correlativo a 0095.
+- Bug: `lib/recibos/pdf/synaptica.ts` ignoraba `p.amountBs` (campo que sí existe en `tipos.ts` y que `builder.ts` sí usa) y siempre convertía con la tasa en vivo; además `filaARecibo` en `scripts/whatsapp-recibos.mjs` no pasaba `amountBs` al builder.
+- Fix: en `synaptica.ts`, la línea de Bs por pago y el "Total abonado" prefieren `p.amountBs` cuando > 0 (fallback a tasa en vivo); en `whatsapp-recibos.mjs`, `filaARecibo` ahora incluye `amountBs: Number(p.amountBs) || 0`.
+- Verificado visualmente: el PDF regenerado muestra "Pago móvil $280,00 / Bs 245.000,00" y "Total abonado $280,00 / Bs 245.000,00".
+- Datos: recibo renombrado a SEN-202610-0095 vía SQL (sin intent en el módulo para renumerar); secuencia `fin_recibo_secuencias` del mes adelantada a 95 (próximo: 0096); pago actualizado a metodo=mobile, amountBs=245000. Sin commit (pendiente "sí" de luigi para pushear).
+
+## 2026-10-08 — Recibos: línea divisoria del RESUMEN 3mm arriba
+- luigi pidió subir 3mm la línea divisoria entre Subtotal y Total en la tarjeta RESUMEN del PDF.
+- Cambio en `lib/recibos/pdf/synaptica.ts`: `doc.line(...)` pasó de `sy - 2.5` a `sy - 5.5`. Verificado visualmente con zoom: la línea queda centrada en el espacio entre ambas filas.
+
+## 2026-10-08 — Recibo SEN-202610-0095: garantía 30 días + emisión 07/10
+- luigi pidió 30 días de garantía y fecha de emisión 07/10/2026. El módulo de WhatsApp no tiene intents para editar garantía/fecha post-creación: se hizo por SQL directo (vía Management API): `fecha_emision='2026-10-07'`, `snapshot.garantiaDias=30`, `snapshot.garantiaFin='2026-11-06'` (claves planas del snapshot guardado, que `filaARecibo` mapea a `meta.warrantyDays/warrantyEndDate`).
+- PDF regenerado y verificado visualmente: muestra "EMISIÓN 07 oct. 2026" y la banda "GARANTÍA VIGENTE · 30 días · Vence el 06 nov. 2026".
+
+## 2026-10-08 — Recibos: marca de agua PAGADO centrada
+- luigi pidió centrar la marca de agua "PAGADO" en la hoja. Estaba en (105, 165); el centro real del A4 (210×297) es (105, 148.5).
+- Cambio en `lib/recibos/pdf/synaptica.ts` (`marcaAgua`): coordenadas fijas → `PAGE.w / 2, PAGE.h / 2`. Verificado visualmente.
+
+## 2026-10-08 — Recibo SEN-202610-0095: ciudad del cliente
+- luigi pidió agregar que Bily Medina vive en Paraparal, Edo. Carabobo. Se actualizó `snapshot.clienteCiudad` por SQL (sin intent de edición en el módulo). El PDF muestra "PARAPARAL, EDO. CARABOBO" en la tarjeta FACTURADO A.
+
+## 2026-10-08 — Recibo SEN-202610-0095: municipio del cliente
+- luigi confirmó que Paraparal está en el municipio Los Guayos (verificado por búsqueda web). `snapshot.clienteCiudad` = "Paraparal, Municipio Los Guayos, Edo. Carabobo". El PDF lo muestra en la tarjeta FACTURADO A.
+
+## 2026-10-08 — Recibos: secuencia continua + nombre de PDF con fecha
+- luigi: el correlativo NUNCA se reinicia por mes (solo si él lo pide). Migración `0032_recibo_secuencia_continua.sql` aplicada: `rpc_recibo_numero` ahora usa clave fija `mes='siempre'` (correlativo global por usuario/hogar) y padding a 4 dígitos (`SEN-YYYYMM-NNNN`). Semilla: `ultimo=95` (no se pierde el 0095). Probado en transacción con ROLLBACK: el próximo número es `SEN-202610-0096`.
+- Convención de archivo: el PDF lleva cliente y fecha de emisión → `Recibo-<numero>-<Cliente>-<YYYY-MM-DD>.pdf`.

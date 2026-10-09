@@ -469,7 +469,7 @@ function drawSynPagosResumen(
     setTextColor(doc, C.ink);
     doc.text(formatCurrency(p.amount, cur), 12 + leftW - 5, ry + 5, { align: "right" });
     if (options.bsRate && (cur === "USD" || cur === "USDT")) {
-      const bs = convertirABs(p.amount, options.bsRate);
+      const bs = p.amountBs && p.amountBs > 0 ? p.amountBs : convertirABs(p.amount, options.bsRate);
       if (bs > 0) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8.5);
@@ -494,9 +494,13 @@ function drawSynPagosResumen(
     doc.text("Total abonado", 17, fy + 6.5);
     doc.setFontSize(9.5);
     setTextColor(doc, C.ink);
+    const totalBsPagos = pagos.reduce(
+      (a, p) => a + (p.amountBs && p.amountBs > 0 ? p.amountBs : convertirABs(p.amount, options.bsRate ?? null)),
+      0
+    );
     const totalBs =
       options.bsRate && (cur === "USD" || cur === "USDT")
-        ? ` / ${formatearBs(convertirABs(totals.totalPaid, options.bsRate))}`
+        ? ` / ${formatearBs(totalBsPagos > 0 ? totalBsPagos : convertirABs(totals.totalPaid, options.bsRate))}`
         : "";
     doc.text(`${formatCurrency(totals.totalPaid, cur)}${totalBs}`, 12 + leftW - 5, fy + 6.5, {
       align: "right",
@@ -528,7 +532,7 @@ function drawSynPagosResumen(
   fila("Subtotal", formatCurrency(totals.subtotal, cur), false, C.body);
   setStroke(doc, C.border);
   doc.setLineWidth(0.15);
-  doc.line(rightX + 6, sy - 2.5, rightX + rightW - 6, sy - 2.5);
+  doc.line(rightX + 6, sy - 5.5, rightX + rightW - 6, sy - 5.5);
   fila("Total", formatCurrency(totals.total, cur), true, C.ink, 11.5);
   if (totals.totalPaid > 0) {
     fila("Total abonado", formatCurrency(totals.totalPaid, cur), false, TEAL, 9.5);
@@ -730,7 +734,7 @@ function marcaAgua(doc: jsPDF, texto: string, color: RGB, opacity: number): void
   doc.setFont("helvetica", "bold");
   doc.setFontSize(110);
   doc.setTextColor(color[0], color[1], color[2]);
-  doc.text(texto, 105, 165, { align: "center", angle: 30 });
+  doc.text(texto, PAGE.w / 2, PAGE.h / 2, { align: "center", angle: 30 });
   doc.restoreGraphicsState();
 }
 

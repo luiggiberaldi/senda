@@ -476,6 +476,7 @@ function filaARecibo(fila) {
       id: p.id || randomUUID(), date: p.fecha || fila.fecha_emision,
       amount: Number(p.monto) || 0, method: p.metodo || "transfer",
       reference: p.referencia || "", note: p.nota || "",
+      amountBs: Number(p.amountBs) || 0,
     })),
     scheduledPayments: cuotas.map((c, i) => ({
       id: c.id || `cuota-${i}`, date: c.date || c.fecha || "",
