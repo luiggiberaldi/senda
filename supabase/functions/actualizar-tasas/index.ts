@@ -1,11 +1,15 @@
 // Edge Function actualizar-tasas — Servicio de tasas (Fase 0.4 de Senda).
 //
 // Acciones (body JSON):
-//   {"accion":"actualizar"} — trae BCV ($ oficial), paralelo ($), euro oficial
-//     (BCV) de DolarAPI y USDT de CriptoYa (fallback: Binance P2P); hace
-//     upsert en fin_tasas para la fecha de hoy (America/Caracas). Cada fuente
-//     falla por separado sin tumbar a las demás: se conserva el valor previo
-//     del campo fallido.
+//   {"accion":"actualizar"} — trae BCV ($ oficial) y euro oficial (BCV)
+//     DIRECTO del BCV (scrape bcv.org.ve → CDN DolarVZLA → DolarAPI como
+//     último recurso); paralelo ($) de DolarAPI; USDT de CriptoYa
+//     (fallback: Binance P2P); hace upsert en fin_tasas para la fecha de hoy
+//     (America/Caracas). Cada fuente falla por separado sin tumbar a las
+//     demás: se conserva el valor previo del campo fallido.
+//     NOTA: DolarAPI queda como ÚLTIMO recurso para las tasas oficiales
+//     porque su publicación puede quedar un día atrás respecto de la página
+//     vigente del BCV (criterio de listo-pos-cotizaciones).
 //   {"accion":"manual","bcv":n,"euro":n,"usdt":n} — guarda tasas ingresadas a
 //     mano por el usuario (fuente "manual"). El paralelo ya no se edita a mano
 //     (solo automático): se sigue guardando porque Finanzas lo usa para
@@ -80,6 +84,120 @@ async function dolarApi(
     console.error(`DolarAPI ${moneda}/${fuente} falló:`, e);
     return null;
   }
+}
+
+// ─── BCV directo (criterio listo-pos-cotizaciones) ───────────────────────────
+// El dólar y el euro oficiales se traen DIRECTO del BCV, no de DolarAPI,
+// porque la publicación de DolarAPI puede quedar un día atrás respecto de
+// la página vigente del BCV.
+
+const BCV_URL = "https://www.bcv.org.ve/";
+const BCV_CDN_URL = "https://rates.dolarvzla.com/bcv/current.json";
+const BCV_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/** Parsea "873,86" / "1.234,56" (formato venezolano) a number. */
+function parseLocalizedNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value !== "string") return 0;
+  const clean = value.replace(/[^\d.,]/g, "");
+  if (!clean) return 0;
+  const lastDot = clean.lastIndexOf(".");
+  const lastComma = clean.lastIndexOf(",");
+  const lastSep = Math.max(lastDot, lastComma);
+  if (lastSep === -1) return Number(clean) || 0;
+  const integer = clean.slice(0, lastSep).replace(/[.,]/g, "");
+  const decimals = clean.slice(lastSep + 1);
+  return Number(`${integer}.${decimals}`) || 0;
+}
+
+/** Extrae la tasa con id="dolar" o id="euro" del HTML del BCV. */
+function extractBcvRate(html: string, id: string): number {
+  const patterns = [
+    new RegExp(
+      `id=["']${id}["'][\\s\\S]{0,5000}?<strong\\b[^>]*class=["'][^"']*strong-tb[^"']*["'][^>]*>\\s*([\\d.,]+)`,
+      "i",
+    ),
+    new RegExp(`id=["']${id}["'][\\s\\S]{0,5000}?<strong\\b[^>]*>\\s*([\\d.,]+)`, "i"),
+  ];
+  for (const pattern of patterns) {
+    const v = parseLocalizedNumber(html.match(pattern)?.[1]);
+    if (v > 0) return v;
+  }
+  return 0;
+}
+
+async function fetchText(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 12_000,
+): Promise<string | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { ...init, signal: ctrl.signal });
+    if (!r.ok) return null;
+    return await r.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** 1. BCV directo: scrapea bcv.org.ve (dólar y euro oficiales). */
+async function fetchBcvDirect(): Promise<{ usd: number; eur: number } | null> {
+  const html = await fetchText(`${BCV_URL}?_=${Date.now()}`, {
+    headers: {
+      "User-Agent": BCV_USER_AGENT,
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "es-VE,es;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  });
+  if (!html) return null;
+  const usd = extractBcvRate(html, "dolar");
+  const eur = extractBcvRate(html, "euro");
+  if (usd <= 0 || eur <= 0) return null;
+  return { usd, eur };
+}
+
+/** 2. CDN que replica la publicación diaria del BCV. */
+async function fetchBcvCdn(): Promise<{ usd: number; eur: number } | null> {
+  try {
+    const d = (await fetchJson(`${BCV_CDN_URL}?_=${Date.now()}`, {
+      headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+    }, 8_000)) as { current?: { usd?: unknown; eur?: unknown; date?: unknown } };
+    const usd = parseLocalizedNumber(d?.current?.usd);
+    const eur = parseLocalizedNumber(d?.current?.eur);
+    if (usd <= 0 || eur <= 0 || typeof d?.current?.date !== "string") return null;
+    return { usd, eur };
+  } catch {
+    return null;
+  }
+}
+
+type BcvOficial = { usd: number; eur: number; fuente: string } | null;
+
+/**
+ * Tasas oficiales BCV (dólar y euro) con prioridad:
+ * BCV directo → CDN DolarVZLA → DolarAPI (último recurso).
+ */
+async function bcvOficialRates(): Promise<BcvOficial> {
+  const directo = await fetchBcvDirect();
+  if (directo) return { ...directo, fuente: "BCV Directo" };
+  const cdn = await fetchBcvCdn();
+  if (cdn) return { ...cdn, fuente: "BCV CDN (DolarVZLA)" };
+  const [usdApi, eurApi] = await Promise.all([
+    dolarApi("dolares", "oficial"),
+    dolarApi("euros", "oficial"),
+  ]);
+  if (usdApi !== null && eurApi !== null) {
+    return { usd: usdApi, eur: eurApi, fuente: "DolarAPI Oficial (último recurso)" };
+  }
+  return null;
 }
 
 /** USDT/VES: promedio de ask/bid de CriptoYa (Binance P2P). */
@@ -184,13 +302,16 @@ Deno.serve(async (req: Request) => {
       );
     }
   } else if (body.accion === "actualizar") {
-    // Las cuatro fuentes en paralelo: el peor caso es un solo timeout.
-    const [bcvApi, paraleloApi, euroApi, usdtCripto] = await Promise.all([
-      dolarApi("dolares", "oficial"),
+    // Oficiales (BCV $ y €): directo del BCV → CDN → DolarAPI (último recurso).
+    // Paralelo: solo DolarAPI (el BCV no lo publica). USDT: CriptoYa → Binance.
+    const [oficial, paraleloApi, usdtCripto] = await Promise.all([
+      bcvOficialRates(),
       dolarApi("dolares", "paralelo"),
-      dolarApi("euros", "oficial"),
       usdtCriptoYa(),
     ]);
+    const bcvApi = oficial?.usd ?? null;
+    const euroApi = oficial?.eur ?? null;
+    const fuenteOficial = oficial?.fuente ?? null;
     let usdtApi = usdtCripto;
     let fuenteUsdt = "CriptoYa";
     if (usdtApi === null) {
@@ -202,7 +323,9 @@ Deno.serve(async (req: Request) => {
     euro = redondear(euroApi) ?? previa?.euro ?? null;
     usdt = redondear(usdtApi) ?? previa?.usdt ?? null;
     const partes: string[] = [];
-    if (bcvApi !== null || paraleloApi !== null || euroApi !== null) {
+    if (fuenteOficial) {
+      partes.push(fuenteOficial);
+    } else if (paraleloApi !== null) {
       partes.push("DolarAPI");
     }
     if (usdtApi !== null) partes.push(fuenteUsdt);

@@ -1355,6 +1355,9 @@ function SeccionMetas({
 // ── Sección cierre de mes ────────────────────────────────────────────────────
 
 function SeccionCierre({ cierre, mes, onCambiarMes }: { cierre: ControlCierre | null; mes: string; onCambiarMes: (m: string) => void }) {
+  const [catExpandida, setCatExpandida] = useState<string | null>(null);
+  const [movsCat, setMovsCat] = useState<Record<string, { fecha: string; nota: string; monto: number; moneda: string; usd: number }[]>>({});
+  const [cargandoCat, setCargandoCat] = useState<string | null>(null);
   const moverMes = (delta: number) => {
     const [y, m] = mes.split("-").map(Number);
     const d = new Date(Date.UTC(y, m - 1 + delta, 1));
@@ -1366,6 +1369,48 @@ function SeccionCierre({ cierre, mes, onCambiarMes }: { cierre: ControlCierre | 
   };
   const dIng = cierre ? diff(cierre.ingresosUsd, cierre.mesAnterior.ingresosUsd) : null;
   const dEgr = cierre ? diff(cierre.egresosUsd, cierre.mesAnterior.egresosUsd) : null;
+
+  // Al pulsar una categoría, muestra el desglose de sus movimientos.
+  const toggleCategoria = async (categoria: string) => {
+    if (catExpandida === categoria) {
+      setCatExpandida(null);
+      return;
+    }
+    setCatExpandida(categoria);
+    if (movsCat[categoria]) return;
+    setCargandoCat(categoria);
+    try {
+      const { getSupabase } = await import("@/lib/core/supabase");
+      const supabase = getSupabase();
+      if (!supabase) return;
+      const [y, m] = mes.split("-").map(Number);
+      const ini = `${mes}-01`;
+      const fin = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from("fin_movimientos")
+        .select("fecha, nota, monto, tasa_usd, fin_cuentas!fin_movimientos_cuenta_id_fkey(moneda)")
+        .eq("tipo", "egreso")
+        .eq("categoria", categoria)
+        .is("anulado_en", null)
+        .gte("fecha", ini)
+        .lte("fecha", fin)
+        .order("fecha", { ascending: false });
+      const lista = ((data ?? []) as Record<string, unknown>[]).map((f) => {
+        const cu = (f.fin_cuentas ?? {}) as Record<string, unknown>;
+        const usd = Number(f.monto) * Number(f.tasa_usd);
+        return {
+          fecha: String(f.fecha),
+          nota: String(f.nota ?? ""),
+          monto: Number(f.monto),
+          moneda: String(cu.moneda ?? ""),
+          usd: Math.round(usd * 100) / 100,
+        };
+      });
+      setMovsCat((prev) => ({ ...prev, [categoria]: lista }));
+    } finally {
+      setCargandoCat(null);
+    }
+  };
 
   return (
     <section aria-label="Cierre de mes">
@@ -1419,11 +1464,36 @@ function SeccionCierre({ cierre, mes, onCambiarMes }: { cierre: ControlCierre | 
             <ul className="space-y-2">
               {cierre.porCategoria.map((c) => (
                 <li key={c.categoria} className="rounded-2xl border border-border bg-surface p-3">
-                  <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleCategoria(c.categoria)}
+                    className="flex w-full items-center justify-between gap-2 text-left"
+                    aria-expanded={catExpandida === c.categoria}
+                  >
                     <p className="truncate text-sm font-bold capitalize text-foreground">{c.categoria}</p>
                     <p className="shrink-0 text-sm font-bold text-foreground">${c.total_usd.toFixed(2)}</p>
-                  </div>
+                  </button>
                   <p className="mt-0.5 text-[11px] text-muted">{c.n} movimiento{c.n === 1 ? "" : "s"}</p>
+                  {catExpandida === c.categoria && (
+                    <div className="mt-2 border-t border-border pt-2">
+                      {cargandoCat === c.categoria ? (
+                        <p className="text-[11px] text-muted">Cargando…</p>
+                      ) : (movsCat[c.categoria] ?? []).length === 0 ? (
+                        <p className="text-[11px] text-muted">Sin movimientos.</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {(movsCat[c.categoria] ?? []).map((mv, i) => (
+                            <li key={i} className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="truncate text-muted">
+                                {mv.fecha.slice(8, 10)}/{mv.fecha.slice(5, 7)} · {mv.nota || "—"}
+                              </span>
+                              <span className="shrink-0 font-semibold text-foreground">${mv.usd.toFixed(2)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1522,14 +1592,14 @@ export default function ControlPage() {
         )}
       </div>
 
-      <nav aria-label="Secciones de Control" className="mb-4 grid grid-cols-5 gap-1 rounded-2xl border border-border bg-surface p-1">
+      <nav aria-label="Secciones de Control" className="mb-4 flex gap-1 overflow-x-auto rounded-2xl border border-border bg-surface p-1">
         {TABS.map((t) => (
           <button
             key={t.valor}
             type="button"
             onClick={() => setTab(t.valor)}
             aria-current={tab === t.valor ? "page" : undefined}
-            className={`min-w-0 rounded-xl px-1 py-2 text-center text-xs font-bold ${
+            className={`shrink-0 rounded-xl px-3 py-2 text-center text-xs font-bold whitespace-nowrap ${
               tab === t.valor ? "bg-accent text-white" : "text-muted"
             }`}
           >
