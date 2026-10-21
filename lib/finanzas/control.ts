@@ -321,7 +321,8 @@ export async function listarPresupuestos(mesYm: string): Promise<ControlPresupue
     .is("anulado_en", null)
     .gte("fecha", mes)
     .lte("fecha", finStr)
-    .not("categoria", "is", null);
+    .not("categoria", "is", null)
+    .neq("categoria", "traspaso");
   lanzarSiHayError(eMov, "No se pudo leer el gasto del mes");
 
   const gastoPorCat = new Map<string, number>();
@@ -700,6 +701,8 @@ export async function cierreDeMes(mesYm: string): Promise<ControlCierre> {
   let ing = 0, egr = 0, ingPrev = 0, egrPrev = 0;
   const porCat = new Map<string, { total: number; n: number }>();
   for (const mv of (movs ?? []) as { tipo: string; categoria: string | null; monto: number; tasa_usd: number; fecha: string }[]) {
+    // Regla (2026-10-10, luigi): traspaso no es gasto/ingreso real, se excluye.
+    if ((mv.categoria ?? "") === "traspaso") continue;
     const usd = Number(mv.monto) * Number(mv.tasa_usd);
     const enMes = mv.fecha >= mes;
     if (mv.tipo === "ingreso") {

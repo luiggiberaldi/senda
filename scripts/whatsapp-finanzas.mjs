@@ -53,10 +53,18 @@ const CATEGORIA_KEYWORDS = [
   ["vivienda", ["alquiler", "arriendo", "vivienda"]],
   ["ocio", ["cine", "fiesta", "ocio"]],
   ["ropa", ["ropa", "zapato", "camisa", "pantalon", "franela"]],
+  ["mascotas", ["mascota", "gato", "gata", "gatarina", "miringo", "aserrin", "perro", "arena"]],
+  ["herramientas", ["herramienta", "freebuff", "canva", "figma", "notion", "suscripcion", "mensualidad", "licencia", "software", "app"]],
+  ["préstamo", ["prestamo", "prestamos"]],
+  ["devolución", ["devolucion", "devoluciones"]],
+  ["pago deudas", ["deuda", "deudas"]],
 ];
 const CATEGORIA_INGRESO_KEYWORDS = [
   ["salario", ["salario", "sueldo", "quincena"]],
   ["ventas", ["venta", "mercadolibre", "p2p"]],
+  ["préstamo", ["prestamo", "prestamos"]],
+  ["devolución", ["devolucion", "devoluciones"]],
+  ["pago deudas", ["deuda", "deudas"]],
 ];
 
 /** Parsea un monto suelto en formato es-VE (1.234,56) o simple. Devuelve number o null. */
@@ -150,6 +158,18 @@ function detectarTipo(texto) {
 
 function detectarCategoria(texto, tipo) {
   const n = ` ${norm(texto)} `;
+  // Guardrail (2026-10-10, luigi): "favor" o "traspaso" → categoría "traspaso".
+  // Dinero que pasa por la cuenta pero no es gasto/ingreso real (ej. favor mamá
+  // Bs 141.330 que entró y salió el mismo día). El coach excluye "traspaso"
+  // de los totales para no inflar estadísticas.
+  if (/\b(favor|traspaso)\b/.test(n)) return "traspaso";
+  // Guardrail (2026-10-10, luigi): P2P es traspaso. "compra p2p" matcheaba
+  // "compra" → "mercado" y "venta p2p" matcheaba "p2p" → "ventas", inflando
+  // estadísticas (ej. gasto en mercado +2.275.728% por Bs 242.000 en P2P del
+  // 07/10). Las conversiones P2P (Bs↔USDT) no son gasto/ingreso real: van a
+  // "traspaso" y el coach las excluye. Si es una venta real, luigi la
+  // recategoriza manual.
+  if (/\bp2p\b/.test(n)) return "traspaso";
   const lista = tipo === "ingreso" ? CATEGORIAS_INGRESO : CATEGORIAS_EGRESO;
   for (const c of lista) {
     if (n.includes(` ${c} `)) return c;
@@ -425,6 +445,16 @@ try {
   const categoria = tipo === "transferencia" ? null : detectarCategoria(q, tipo);
   const montoRaw = q.match(/(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/)?.[1] ?? null;
   const nota = restoNota(q, montoRaw, cuenta.nombre);
+  // Regla de luigi (2026-10-10): ningún movimiento puede quedar sin categoría.
+  // Si no se detectó, se pregunta en vez de guardar con null.
+  if (tipo !== "transferencia" && !categoria) {
+    out({
+      ok: false,
+      codigo: "ambiguo",
+      pregunta: `¿En qué categoría registro ${fmtMoneda(monto, monedaMencion ?? cuenta.moneda)} (${nota})?`,
+      detalle: "no se pudo determinar la categoría",
+    });
+  }
   const clave = `wa-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
 
   const r = await rpc("rpc_fin_registrar", {

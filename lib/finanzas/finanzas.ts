@@ -429,6 +429,8 @@ export async function obtenerDatosFinanzas(): Promise<FinDatos> {
   const porCategoria = new Map<string, number>();
   const claveMesActual = claveMesCaracas(ahora);
   for (const m of movs) {
+    // Regla (2026-10-10, luigi): traspaso no es gasto/ingreso real, se excluye.
+    if ((m.categoria ?? "") === "traspaso") continue;
     const usd = Math.round(m.monto * m.tasaUsd * 100) / 100;
     const mes = porClave.get(m.fecha.slice(0, 7));
     if (mes) {

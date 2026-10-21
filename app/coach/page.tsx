@@ -140,6 +140,8 @@ export default function CoachPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {tarjetaResumen(<IconCheck className="w-5 h-5" />, "Hábitos", String(briefing.habitos.completados_7d), `registros (prev: ${briefing.habitos.completados_7d_prev})`, "/habitos")}
                 {tarjetaResumen(<IconMaletin className="w-5 h-5" />, "Gastos", fmtUsd(briefing.finanzas.egresos_7d_usd), `prev: ${fmtUsd(briefing.finanzas.egresos_7d_prev_usd)}`, "/finanzas")}
+                {tarjetaResumen(<IconMaletin className="w-5 h-5" />, "Ingresos", fmtUsd(briefing.finanzas.ingresos_7d_usd), `prev: ${fmtUsd(briefing.finanzas.ingresos_7d_prev_usd)}`, "/finanzas")}
+                {tarjetaResumen(<IconMaletin className="w-5 h-5" />, "Neto", fmtUsd(briefing.finanzas.neto_7d_usd), `prev: ${fmtUsd(briefing.finanzas.neto_7d_prev_usd)}`, "/finanzas")}
                 {tarjetaResumen(<IconCampana className="w-5 h-5" />, "Pagos vencidos", String(briefing.control.recordatorios_vencidos), `${briefing.control.deudas_pendientes} deudas pendientes`, "/control")}
                 {tarjetaResumen(<IconObjetivo className="w-5 h-5" />, "Por comprar", String(briefing.mercado.lista_pendientes), "pendientes en la lista", "/mercado")}
               </div>

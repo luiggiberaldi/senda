@@ -27,6 +27,10 @@ export interface CoachBriefing {
   finanzas: {
     egresos_7d_usd: number;
     egresos_7d_prev_usd: number;
+    ingresos_7d_usd: number;
+    ingresos_7d_prev_usd: number;
+    neto_7d_usd: number;
+    neto_7d_prev_usd: number;
     top_categorias: Array<{ categoria: string; actual: number; previo: number; pct: number | null }>;
   };
   mercado: {
