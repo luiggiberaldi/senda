@@ -1126,3 +1126,156 @@ luigi: "los productos en 0 no deben aparecer en la despensa/alacena, deben apare
 ## 2026-10-08 — Recibos: secuencia continua + nombre de PDF con fecha
 - luigi: el correlativo NUNCA se reinicia por mes (solo si él lo pide). Migración `0032_recibo_secuencia_continua.sql` aplicada: `rpc_recibo_numero` ahora usa clave fija `mes='siempre'` (correlativo global por usuario/hogar) y padding a 4 dígitos (`SEN-YYYYMM-NNNN`). Semilla: `ultimo=95` (no se pierde el 0095). Probado en transacción con ROLLBACK: el próximo número es `SEN-202610-0096`.
 - Convención de archivo: el PDF lleva cliente y fecha de emisión → `Recibo-<numero>-<Cliente>-<YYYY-MM-DD>.pdf`.
+
+## 2026-10-08 — Push 62cce22 a luiggiberaldi/senda (master)
+- Pusheado con el "sí" de luigi. Incluye: amountBs en PDF, marca de agua centrada, línea RESUMEN +3mm, filaARecibo con amountBs, migración 0032 (secuencia continua). Gate pre-commit OK (typecheck + lint + smoke tests).
+
+## 2026-10-10 — Guardrail monedas en Coach (migración 0035)
+- luigi: "$, Bs y USDT no son lo mismo". El `rpc_coach_briefing` sumaba `monto * coalesce(tasa_usd, 1)`; con `tasa_usd` NULL, Bs 242.000 se contaba como $242.000.
+- Migración `0035_coach_moneda_guardrail.sql` aplicada: `top_cats`, `fin_7d`, `fin_7d_prev` y `pres_gasto` ahora usan `public.fin_convertir(m.monto, c.moneda, 'USD')` con join a `fin_cuentas` (moneda real: VES/USDT/USD).
+- Test: mercado 7d (2026-10-03 al 2026-10-10) = $95.89 USD (correcto, antes $242.100 por P2P mal categorizado).
+- Relacionado: guardrail en `whatsapp-finanzas.mjs` (`detectarCategoria` retorna null si contiene "p2p") + fix de 3 P2P (Bs 35.000, 100.000, 142.000) de "mercado" a null.
+
+## 2026-10-10 — Barrido de categorías (luigi)
+- Barrido de 119 movimientos (30d): sin cifras exorbitantes, tasa_usd limpia.
+- Fixes aplicados: "verduras" Bs 4.550 → mercado; 4 ingresos → ventas (sistema desarrollado, construacero, listo pos lite, mercadolibre); 3 egresos → proveedores (costo turkesterone + 2× pago dropanas); "prestamo yon" → préstamo; "devolucion cliente" → devolución.
+- "pago dropanas" Bs 10.600 ×2 el 03/10 confirmado por luigi: NO es duplicado, son dos pagos reales.
+- Quedan 59 sin categoría (mayoría P2P intencional + favores personales).
+
+## 2026-10-10 — Guardrail traspaso (luigi)
+- luigi: el "favor mamá" (Bs 141.330 entra, Bs 141.327 sale mismo día) no es gasto/ingreso real; y las piernas P2P (USDT→Bs) duplican si se cuentan ambas.
+- Nueva categoría `traspaso`: el coach (migración 0035) la excluye de todos los totales con `coalesce(categoria,'') != 'traspaso'`.
+- "favor mama pago pasaporte" (ingreso y egreso) → `traspaso`.
+- Guardrail en `whatsapp-finanzas.mjs`: `detectarCategoria` retorna `"traspaso"` si el texto contiene "favor" o "traspaso" (antes de la regla P2P). Sintaxis verificada.
+- Los P2P de conversión los marca luigi manualmente como traspaso por WhatsApp.
+
+## 2026-10-10 — Fix duplicación P2P (luigi)
+- luigi: la "salida p2p" 244.25 USDT y la "devolución" Bs 247.000 son la misma plata (Binance→BDV→cliente). Se duplicaba en $488.
+- "salida p p" 244.25 USDT (a224a61b) → `traspaso`; "venta p p" Bs 247.000 (a3bd4da5) → `traspaso`. Solo la devolución cuenta como gasto real.
+- Gastos 7d: $1.111,69 → $867,44.
+
+## 2026-10-10 — P2P → traspaso (luigi)
+- luigi: las compras P2P (Bs→USDT) también son traspaso, no gasto.
+- 4 movimientos del 07/10 → `traspaso`: Bs 142.000, 140.39 USDT, Bs 100.000, 98.92 USDT.
+- Guardrail actualizado: `detectarCategoria` retorna `"traspaso"` (no null) si contiene "p2p".
+- Gastos 7d: $867,44 → $627,40.
+
+## 2026-10-10 — Regla: sin categoría no se guarda (luigi)
+- luigi: "Ningún movimiento puede estar sin categorizar".
+- `whatsapp-finanzas.mjs`: si `detectarCategoria` retorna null (y no es transferencia), el router responde `ok:false, codigo:ambiguo` preguntando la categoría en vez de guardar con null.
+- Excepción: las transferencias entre cuentas propias mantienen categoría null.
+
+## 2026-10-10 — Todos los P2P → traspaso (luigi)
+- luigi: marcar todos los P2P pendientes como traspaso.
+- 20 movimientos P2P con categoría NULL → `traspaso` (se preservan los 3 con categoría `ventas`).
+- Gastos 7d: $627,40 → $500,04 (gastos reales, sin conversiones).
+
+## 2026-10-10 — Categorización masiva (luigi)
+- luigi categorizó los 30 movimientos sin categoría:
+  - mascotas (2): aserrín gatos ×2
+  - varios (10): devolución mamá, pago mamá, varios, 3 ajustes conciliación, préstamo Ezequiel, diferencia favor venta, abono intereses, abono recibido
+  - saldos iniciales (3)
+  - mercado (5), vivienda (3), publicidad (2), servicios (3), traspaso (2: compra USDT para amigo)
+- Quedan 0 movimientos sin categoría (excluyendo transferencias).
+
+## 2026-10-10 — Coach muestra ingresos, egresos y neto (luigi)
+- luigi: el coach debe mostrar ingreso, egreso y neto (no solo gastos).
+- Migración 0035: agregados CTEs `ing_7d`/`ing_7d_prev` (ingresos sin traspaso ni anulados) y campos `ingresos_7d_usd`, `ingresos_7d_prev_usd`, `neto_7d_usd`, `neto_7d_prev_usd` en el JSON de finanzas.
+- `lib/coach/coach.ts`: tipos actualizados. `app/coach/page.tsx`: tarjetas "Ingresos" y "Neto" agregadas al resumen.
+- Valores 7d: ingresos $438,09 / egresos $500,04 / neto -$61,96.
+- Pendiente deploy a Vercel para que se vea en el teléfono.
+
+## 2026-10-10 — Deploy coach con ingresos/egresos/neto
+- Deploy a producción (vercel --prod): https://habitos-amber.vercel.app
+- El coach ahora muestra las 3 tarjetas: Ingresos $438,09 / Egresos $500,04 / Neto -$61,96.
+
+## 2026-10-10 — Auditoría: traspaso excluido en todas las vistas
+- luigi pidió buscar errores similares en el sistema.
+- Encontrados y corregidos:
+  - `cierreDeMes` (control.ts): no excluía traspaso → fix aplicado
+  - Presupuestos (control.ts): no excluía traspaso en gasto por categoría → fix aplicado
+  - `obtenerDatosFinanzas` (finanzas.ts): no excluía traspaso de ingresos/egresos mensuales ni top categorías → fix aplicado
+- Los saldos (`rpc_fin_saldos`) SÍ incluyen traspaso correctamente (es dinero real).
+- Pendiente deploy para que se vean los fixes en el teléfono.
+
+## 2026-10-10 — Guardrails, arneses y failovers (luigi)
+- Migración 0036:
+  - Guardrail DB: `tasa_usd` NOT NULL + CHECK(tasa_usd > 0) — imposible tasa inválida
+  - Failover `fin_convertir_seguro(monto, moneda, tasa_respaldo)` — si falla conversión, usa tasa guardada
+  - Arnés `rpc_fin_auditoria(user_id)` — verifica {sin_categoria, tasa_invalida, duplicados, saludable}
+- Test: auditoría retorna saludable=false por 3 duplicados legítimos (2× pago dropanas confirmado, 2× comisiones banco en días distintos)
+
+## 2026-10-10 — Gatarina a mascotas + guardrail
+- "Gatarina Miringo · mercado" Bs 5.046 (03/10) → `mascotas` (era mercado).
+- Guardrail: keywords de `mascotas` agregados: mascota, gato, gata, gatarina, miringo, aserrin, perro, arena.
+
+## 2026-10-10 — Eliminar Prueba Cero (luigi)
+- Producto de prueba "Prueba Cero" eliminado de Mercado (con sus 4 movimientos).
+- Queda "Prueba Umbral" (otro producto de prueba) — no se eliminó porque luigi solo pidió el Cero.
+
+## 2026-10-10 — Eliminar todas las pruebas de Mercado (luigi)
+- "Prueba Umbral" eliminado (con sus movimientos). Ya no quedan productos de prueba.
+
+## 2026-10-10 — Cierre: desglose por categoría (luigi)
+- luigi: al pulsar una categoría en el Cierre debe mostrar el desglose de movimientos.
+- `app/control/page.tsx`: las tarjetas de categoría ahora son botones; al pulsar se expanden y cargan los movimientos (fecha, nota, monto USD) vía Supabase.
+
+## 2026-10-10 — Freebuff a herramientas (luigi)
+- luigi: nada de Freebuff es mercado. Nueva categoría `herramientas`.
+- 3 movimientos → `herramientas`: freebuff ($5.00), freebuff tarjeta ($5.25), freebuff mensualidad ($4.86).
+- Guardrail: keywords de `herramientas`: herramienta, freebuff, canva, figma, notion, suscripcion, mensualidad, licencia, software, app.
+
+## 2026-10-10 — Fix visual tabs Control (luigi)
+- luigi: "Presupuesto" y "Deudas" se solapaban en la barra de tabs.
+- Cambio: grid-cols-5 fijo → flex con overflow-x-auto; botones con shrink-0 y whitespace-nowrap.
+- En móvil angosto las tabs hacen scroll horizontal en vez de encimarse.
+
+## 2026-10-10 — Informe financiero mensual automático (luigi)
+- luigi: informe en PDF detallado cada 1ro de mes a las 12am.
+- Script `scripts/informe-mensual-pdf.py`: genera PDF del mes anterior (ingresos, egresos, balance, gasto por categoría, top 20 movimientos). Probado con octubre 2026.
+- Cron `informe-financiero-mensual`: monthly dom=1, 00:00 America/Caracas. Próxima corrida: 01/11/2026. Entrega el PDF por este chat.
+
+## 2026-10-10 — Comparación mes anterior + informe anual (luigi)
+- luigi pidió comparación con el mes anterior en el informe mensual: `informe-mensual-pdf.py` ahora trae sección "Vs [mes]" con ingresos/egresos/balance del mes anterior y % de cambio. Fix: carácter -> reemplazó → (crash latin-1 en fpdf).
+- luigi pidió informe anual cada 1 de enero a las 12am: script nuevo `scripts/informe-anual-pdf.py` (resumen, mes por mes, por categoría, top 15). Cron `informe-financiero-anual`: yearly 1 ene 00:00 Caracas. Primera corrida: 01/01/2027.
+
+## 2026-10-10 — Rediseño visual de informes PDF con temática Senda (luigi)
+- Módulo compartido `scripts/informe_pdf_estilo.py`: logo Senda en cabecera, banda flama (ember->blaze->gold), tarjetas KPI con borde de color, tablas con cabecera navy y filas alternadas, títulos de sección en ember-600, pie con línea flama + paginación.
+- `informe-mensual-pdf.py` e `informe-anual-pdf.py` reescritos sobre ese estilo. Verificación visual: páginas renderizadas a PNG y auditadas (sin cortes ni solapamientos).
+
+## 2026-10-10 — Rediseño senior de informes PDF (luigi)
+- luigi pidió diseño más atractivo y mejor estructurado. Nuevo `scripts/informe_pdf_estilo.py`:
+  - Fuente DejaVu Sans (Unicode: tildes, ▲▼) en vez de Helvetica latin-1.
+  - Portada: franja blanca con logo + héroe con degradado flama (ember->gold), eyebrow y título grande.
+  - KPIs con deltas vs mes anterior (▲/▼ con color semántico).
+  - Recuadro "Destacados del período" (mayor gasto, balance, mayor ingreso / mejor mes, ahorro).
+  - Barras horizontales por categoría con % del total; gráfico de barras verticales 12 meses en el anual.
+  - Secciones numeradas (01/02/03), tablas editoriales con reglas navy/ember, montos en verde/rojo.
+- Fix: doble signo "++962%" en variación; línea navy que atravesaba encabezados de tabla.
+- Verificación visual por render a PNG en cada iteración.
+
+## 2026-10-11 — Fix bug nota + keywords préstamo/devolución (luigi)
+- Bug real del pendiente 2026-10-10: el guardrail "sin categoría" usaba `nota` antes de declararla → crash "Cannot access 'nota' before initialization". Fix: mover `montoRaw`/`nota` antes del bloque ambiguo. Verificado con HABITOS_MOCK=1 (pregunta bien en vez de crashear).
+- Yon devolvió los Bs 27.700 (2026-10-11): registrado como ingreso `devolución` según decisión de luigi del 10/10 (primero quedó mal como `préstamo`, corregido por SQL).
+- Keywords nuevas: `préstamo` y `devolución` auto-categorizan en egresos e ingresos.
+- Nota: el voucher Banesco se descuenta de la cuenta BDV de luigi (el POS es Banesco pero el débito va al BDV).
+
+## 2026-10-11 — Categoría "pago deudas" (luigi)
+- luigi: crear categoría `pago deudas` y poner todos los pagos de deudas allí.
+- Registrado egreso Bs 2.000 "pago a suegra" (BDV) en `pago deudas`.
+- Movido `pago ezequiel` (ingreso Bs 2.773) de `deuda` → `pago deudas` (único movimiento en `deuda`; la categoría vieja queda vacía).
+- Keywords `deuda`/`deudas` → `pago deudas` en egresos e ingresos (auto-categorización).
+
+## 2026-10-11 — Fix saldo_usd a tasa actual (luigi)
+- luigi detectó: BDV mostraba Bs 63,69 = $3,2 (mal). Causa: la vista `fin_saldos` calculaba `saldo_usd` como suma de cada movimiento a SU tasa histórica (monto * tasa_usd), un "costo histórico" que no representa el valor actual.
+- Migración 0047: `saldo_usd = fin_convertir(saldo_moneda, moneda, 'USD')` con tasa vigente. BDV ahora: Bs 63,69 = $0,06 ✓. Binance y Efectivo sin cambios.
+
+## 2026-10-11 — Guardrails saldos USD (luigi)
+- luigi pidió guardrail para que el error del saldo_usd no se repita.
+- Migración 0048: `rpc_fin_auditoria()` ahora incluye:
+  - `saldos_descuadrados`: recomputa el saldo_usd esperado de cada cuenta de forma independiente (movimientos crudos + fin_convertir a tasa actual) y lo compara con la vista; tolerancia $0,05. Si una futura migración revierte la vista al método histórico, lo detecta.
+  - `tasa_desactualizada`: alerta si fin_tasas no se actualiza en 48h (tasas vencidas = conversiones que se desvían en silencio).
+- Verificado: auditoría corre OK, `saldos_descuadrados: 0`, `tasa_desactualizada: false`. Los 3 `duplicados_sospechosos` son falsos positivos conocidos (2× Dropanas confirmados por luigi + comisiones Bs 14 repetidas).
+
+## 2026-10-11 — Comisión pago móvil suegra (luigi)
+- luigi preguntó si se restó la comisión del pago de Bs 2.000 a la suegra (fue por pago móvil). No se había registrado: se agregó egreso Bs 14 (BDV, servicios, nota "comisión banco").
